@@ -19,11 +19,6 @@ fetch(teapotPath)
   .then((objText) => {
     const lines = objText.split('\n');
 
-    let minY = Infinity;
-    let minZ = Infinity;
-    let maxY = -Infinity;
-    let maxZ = -Infinity;
-
     for (const line of lines) {
       const parts = line.split(' ');
       switch (parts[0]) {
@@ -34,10 +29,6 @@ fetch(teapotPath)
             parseFloat(parts[3]) * scaleFactor,
           ];
           mesh.positions.push(position);
-          minY = Math.min(minY, position[1]);
-          minZ = Math.min(minZ, position[2]);
-          maxY = Math.max(maxY, position[1]);
-          maxZ = Math.max(maxZ, position[2]);
           break;
         case 'vn':
           const normal: [number, number, number] = [
