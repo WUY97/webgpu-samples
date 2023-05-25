@@ -38,6 +38,9 @@ export const pages = {
   gameOfLife: dynamic(() => import('../../sample/gameOfLife/main')),
   renderBundles: dynamic(() => import('../../sample/renderBundles/main')),
   renderSquare: dynamic(() => import('../../sample/renderSquare/main')),
+  gridOfSquare: dynamic(() => import('../../sample/gridOfSquare/main')),
+  cellState: dynamic(() => import('../../sample/cellState/main')),
+  gameSimulation: dynamic(() => import('../../sample/gameSimulation/main')),
 };
 
 function Page({ slug }: Props): JSX.Element {

@@ -1,5 +1,7 @@
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 
+const GRID_SIZE = 32;
+
 const init: SampleInit = async ({ canvas, pageState }) => {
   // WebGPU device initialization
   const adapter = await navigator.gpu.requestAdapter();
@@ -60,16 +62,33 @@ const init: SampleInit = async ({ canvas, pageState }) => {
   const cellShaderModule = device.createShaderModule({
     label: 'Cell shader',
     code: `
-        @vertex
-        fn vertexMain(@location(0) position: vec2f)
-          -> @builtin(position) vec4f {
-          return vec4f(position, 0, 1);
-        }
+      struct VertexOutput {
+        @builtin(position) position: vec4f,
+        @location(0) cell: vec2f,
+      };
 
-        @fragment
-        fn fragmentMain() -> @location(0) vec4f {
-          return vec4f(1, 0, 0, 1);
-        }
+      @group(0) @binding(0) var<uniform> grid: vec2f;
+
+      @vertex
+      fn vertexMain(@location(0) position: vec2f,
+                    @builtin(instance_index) instance: u32) -> VertexOutput {
+        let i = f32(instance);
+        let cell = vec2f(i % grid.x, floor(i / grid.x));
+
+        let cellOffset = cell / grid * 2;
+        let gridPos = (position+1) / grid - 1 + cellOffset;
+
+        var output: VertexOutput;
+        output.position = vec4f(gridPos, 0, 1);
+        output.cell = cell;
+        return output;
+      }
+
+      @fragment
+      fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+        let c = input.cell / grid;
+        return vec4f(c, 1-c.x, 1);
+      }
       `,
   });
 
@@ -93,6 +112,27 @@ const init: SampleInit = async ({ canvas, pageState }) => {
     },
   });
 
+  // Create a uniform buffer that describes the grid.
+  const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);
+  const uniformBuffer = device.createBuffer({
+    label: 'Grid Uniforms',
+    size: uniformArray.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+
+  // Create a bind group to pass the grid uniforms into the pipeline
+  const bindGroup = device.createBindGroup({
+    label: 'Cell renderer bind group',
+    layout: cellPipeline.getBindGroupLayout(0),
+    entries: [
+      {
+        binding: 0,
+        resource: { buffer: uniformBuffer },
+      },
+    ],
+  });
+
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
@@ -113,8 +153,12 @@ const init: SampleInit = async ({ canvas, pageState }) => {
 
     // Draw the square.
     pass.setPipeline(cellPipeline);
+    pass.setBindGroup(0, bindGroup);
     pass.setVertexBuffer(0, vertexBuffer);
-    pass.draw(vertices.length / 2);
+
+    // Draw enough cells to fill the grid
+    const instanceCount = GRID_SIZE * GRID_SIZE;
+    pass.draw(vertices.length / 2, instanceCount);
 
     pass.end();
 
@@ -124,7 +168,7 @@ const init: SampleInit = async ({ canvas, pageState }) => {
   requestAnimationFrame(frame);
 };
 
-const renderSquare: () => JSX.Element = () =>
+const gridOfSquare: () => JSX.Element = () =>
   makeSample({
     name: 'Shadow Mapping',
     description:
@@ -139,4 +183,4 @@ const renderSquare: () => JSX.Element = () =>
     filename: __filename,
   });
 
-export default renderSquare;
+export default gridOfSquare;
