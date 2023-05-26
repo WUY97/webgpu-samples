@@ -45,6 +45,7 @@ export const pages = {
   cellState: dynamic(() => import('../../sample/cellState/main')),
   gameSimulation: dynamic(() => import('../../sample/gameSimulation/main')),
   hw0: dynamic(() => import('../../sample/hw0/main')),
+  hw1: dynamic(() => import('../../sample/hw1/main')),
 };
 
 function Page({ slug }: Props): JSX.Element {
