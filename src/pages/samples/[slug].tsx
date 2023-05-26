@@ -44,6 +44,7 @@ export const pages = {
   gridOfSquare: dynamic(() => import('../../sample/gridOfSquare/main')),
   cellState: dynamic(() => import('../../sample/cellState/main')),
   gameSimulation: dynamic(() => import('../../sample/gameSimulation/main')),
+  hw0: dynamic(() => import('../../sample/hw0/main')),
 };
 
 function Page({ slug }: Props): JSX.Element {
