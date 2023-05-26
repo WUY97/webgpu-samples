@@ -2,6 +2,10 @@ import { makeSample, SampleInit } from '../../components/SampleLayout';
 
 const init: SampleInit = async ({ canvas, pageState }) => {
   // WebGPU device initialization
+  if (!navigator.gpu) {
+    throw new Error('WebGPU not supported on this browser.');
+  }
+
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     throw new Error('No appropriate GPUAdapter found.');

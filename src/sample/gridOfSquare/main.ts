@@ -1,9 +1,13 @@
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 
-const GRID_SIZE = 32;
+import shaderWGSL from './shader.wgsl';
 
-const init: SampleInit = async ({ canvas, pageState }) => {
+const init: SampleInit = async ({ canvas, pageState, gui }) => {
   // WebGPU device initialization
+  if (!navigator.gpu) {
+    throw new Error('WebGPU not supported on this browser.');
+  }
+
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     throw new Error('No appropriate GPUAdapter found.');
@@ -61,35 +65,7 @@ const init: SampleInit = async ({ canvas, pageState }) => {
   // Create the shader that will render the cells.
   const cellShaderModule = device.createShaderModule({
     label: 'Cell shader',
-    code: `
-      struct VertexOutput {
-        @builtin(position) position: vec4f,
-        @location(0) cell: vec2f,
-      };
-
-      @group(0) @binding(0) var<uniform> grid: vec2f;
-
-      @vertex
-      fn vertexMain(@location(0) position: vec2f,
-                    @builtin(instance_index) instance: u32) -> VertexOutput {
-        let i = f32(instance);
-        let cell = vec2f(i % grid.x, floor(i / grid.x));
-
-        let cellOffset = cell / grid * 2;
-        let gridPos = (position+1) / grid - 1 + cellOffset;
-
-        var output: VertexOutput;
-        output.position = vec4f(gridPos, 0, 1);
-        output.cell = cell;
-        return output;
-      }
-
-      @fragment
-      fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-        let c = input.cell / grid;
-        return vec4f(c, 1-c.x, 1);
-      }
-      `,
+    code: shaderWGSL,
   });
 
   // Create a pipeline that renders the cell.
@@ -113,13 +89,30 @@ const init: SampleInit = async ({ canvas, pageState }) => {
   });
 
   // Create a uniform buffer that describes the grid.
-  const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);
+  // const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);
   const uniformBuffer = device.createBuffer({
     label: 'Grid Uniforms',
-    size: uniformArray.byteLength,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+
+  const settings = {
+    GRID_SIZE: 32,
+  };
+
+  const updateSettings = () => {
+    settings.GRID_SIZE = Math.round(settings.GRID_SIZE);
+
+    const uniformArray = new Float32Array([
+      settings.GRID_SIZE,
+      settings.GRID_SIZE,
+    ]);
+
+    device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+  };
+  gui.add(settings, 'GRID_SIZE', 1, 100).onChange(updateSettings);
+
+  updateSettings();
 
   // Create a bind group to pass the grid uniforms into the pipeline
   const bindGroup = device.createBindGroup({
@@ -157,7 +150,7 @@ const init: SampleInit = async ({ canvas, pageState }) => {
     pass.setVertexBuffer(0, vertexBuffer);
 
     // Draw enough cells to fill the grid
-    const instanceCount = GRID_SIZE * GRID_SIZE;
+    const instanceCount = settings.GRID_SIZE * settings.GRID_SIZE;
     pass.draw(vertices.length / 2, instanceCount);
 
     pass.end();
@@ -173,11 +166,17 @@ const gridOfSquare: () => JSX.Element = () =>
     name: 'Shadow Mapping',
     description:
       'This example shows how to sample from a depth texture to render shadows.',
+    gui: true,
     init,
     sources: [
       {
         name: __filename.substring(__dirname.length + 1),
         contents: __SOURCE__,
+      },
+      {
+        name: './shader.wgsl',
+        contents: shaderWGSL,
+        editable: true,
       },
     ],
     filename: __filename,

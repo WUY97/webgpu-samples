@@ -1,10 +1,16 @@
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 
+import shaderWGSL from './shader.wgsl';
+
 const GRID_SIZE = 32;
 const UPDATE_INTERVAL = 500;
 
 const init: SampleInit = async ({ canvas, pageState }) => {
   // WebGPU device initialization
+  if (!navigator.gpu) {
+    throw new Error('WebGPU not supported on this browser.');
+  }
+
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
     throw new Error('No appropriate GPUAdapter found.');
@@ -36,8 +42,8 @@ const init: SampleInit = async ({ canvas, pageState }) => {
         0.8,  0.8,
 
        -0.8, -0.8, // Triangle 2
-        0.8, 0.8,
-       -0.8, 0.8,
+        0.8,  0.8,
+       -0.8,  0.8,
   ]);
   const vertexBuffer = device.createBuffer({
     label: 'Cell vertices',
@@ -62,37 +68,7 @@ const init: SampleInit = async ({ canvas, pageState }) => {
   // Create the shader that will render the cells.
   const cellShaderModule = device.createShaderModule({
     label: 'Cell shader',
-    code: `
-      struct VertexOutput {
-        @builtin(position) position: vec4f,
-        @location(0) cell: vec2f,
-      };
-
-      @group(0) @binding(0) var<uniform> grid: vec2f;
-      @group(0) @binding(1) var<storage> cellState: array<u32>;
-
-      @vertex
-      fn vertexMain(@location(0) position: vec2f,
-                    @builtin(instance_index) instance: u32) -> VertexOutput {
-        let i = f32(instance);
-        let cell = vec2f(i % grid.x, floor(i / grid.x));
-        let state = f32(cellState[instance]);
-
-        let cellOffset = cell / grid * 2;
-        let gridPos = (position*state+1) / grid - 1 + cellOffset;
-
-        var output: VertexOutput;
-        output.position = vec4f(gridPos, 0, 1);
-        output.cell = cell;
-        return output;
-      }
-
-      @fragment
-      fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-        let c = input.cell / grid;
-        return vec4f(c, 1-c.x, 1);
-      }
-      `,
+    code: shaderWGSL,
   });
 
   // Create a pipeline that renders the cell.
