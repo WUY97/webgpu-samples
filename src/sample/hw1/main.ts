@@ -1,3 +1,4 @@
+import { mat4, vec3 } from 'wgpu-matrix';
 import { makeSample, SampleInit } from '../../components/SampleLayout';
 
 import shaderWGSL from './shader.wgsl';
@@ -25,40 +26,13 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   const devicePixelRatio = window.devicePixelRatio || 1;
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
+  const aspect = canvas.width / canvas.height;
   const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
     device,
     format: presentationFormat,
     alphaMode: 'premultiplied',
   });
-
-  // // Create a buffer with the vertices for a single cell.
-  // const vertices =
-  //   /* prettier-ignore */ new Float32Array([
-  //   //   X,    Y,    Z
-  //       0.2,  0.0,  0.2,
-  //       0.0,  0.2,  0.2,
-  //      -0.2,  0.0,  0.2,
-  // ]);
-  // const vertexBuffer = device.createBuffer({
-  //   label: 'Cell vertices',
-  //   size: vertices.byteLength,
-  //   usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  // });
-  // device.queue.writeBuffer(vertexBuffer, 0, vertices);
-
-  // const vertexBufferLayout: GPUVertexBufferLayout[] = [
-  //   {
-  //     arrayStride: 12,
-  //     attributes: [
-  //       {
-  //         format: 'float32x3',
-  //         offset: 0,
-  //         shaderLocation: 0, // Position. Matches @location(0) in the @vertex shader.
-  //       },
-  //     ],
-  //   },
-  // ];
 
   const { positions } = mesh;
 
@@ -125,6 +99,30 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     },
   ];
 
+  const uniformBufferBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: {
+          type: 'uniform',
+        },
+      },
+    ],
+  });
+
+  const bglForRender = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+        buffer: {
+          type: 'uniform',
+        },
+      },
+    ],
+  });
+
   // Create the shader that will render the cells.
   const cellShaderModule = device.createShaderModule({
     label: 'Cell shader',
@@ -132,9 +130,14 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   });
 
   // Create a pipeline that renders the cell.
-  const cellPipeline = device.createRenderPipeline({
-    label: 'Cell pipeline',
-    layout: 'auto',
+  const pipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({
+      bindGroupLayouts: [
+        uniformBufferBindGroupLayout,
+        bglForRender,
+        uniformBufferBindGroupLayout,
+      ],
+    }),
     vertex: {
       module: cellShaderModule,
       entryPoint: 'vertexMain',
@@ -156,10 +159,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     axis: 'x', // 0:x, 1:y, 2:z
   };
 
-  const uniformBufferSize = 2 * Float32Array.BYTES_PER_ELEMENT;
-
   const uniformBuffer = device.createBuffer({
-    size: uniformBufferSize,
+    size: 2 * Float32Array.BYTES_PER_ELEMENT,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -181,8 +182,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   gui.add(settings, 'rotationDegree', 0, 180).onChange(updateSettings);
 
   const bindGroup = device.createBindGroup({
-    label: 'Cell renderer bind group',
-    layout: cellPipeline.getBindGroupLayout(0),
+    layout: uniformBufferBindGroupLayout,
     entries: [
       {
         binding: 0,
@@ -191,9 +191,97 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     ],
   });
 
+  // Model Uniform
+  const modelMatrix = mat4.translation([0, -0.5, 0]);
+
+  const modelUniformBuffer = device.createBuffer({
+    size: 4 * 16, // 4x4 matrix
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const modelData = modelMatrix as Float32Array;
+  device.queue.writeBuffer(
+    modelUniformBuffer,
+    0,
+    modelData.buffer,
+    modelData.byteOffset,
+    modelData.byteLength
+  );
+
+  const sceneUniformBuffer = device.createBuffer({
+    // Two 4x4 viewProj matrices,
+    // one for the camera and one for the light.
+    // Then a vec3 for the light position.
+    // Rounded to the nearest multiple of 16.
+    size: 4 * 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const modelBindGroup = device.createBindGroup({
+    layout: uniformBufferBindGroupLayout,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: modelUniformBuffer,
+        },
+      },
+    ],
+  });
+
+  // Scene Uniform
+  const eyePosition = vec3.fromValues(0, 1, -1);
+  const upVector = vec3.fromValues(0, 1, 0);
+  const origin = vec3.fromValues(0, 0, 0);
+
+  const projectionMatrix = mat4.perspective(
+    (2 * Math.PI) / 5,
+    aspect,
+    1,
+    2000.0
+  );
+
+  const viewMatrix = mat4.inverse(mat4.lookAt(eyePosition, origin, upVector));
+
+  const viewProjMatrix = mat4.multiply(projectionMatrix, viewMatrix);
+
+  const sceneBindGroup = device.createBindGroup({
+    layout: bglForRender,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: sceneUniformBuffer,
+        },
+      },
+    ],
+  });
+
+  function getCameraViewProjMatrix() {
+    const eyePosition = vec3.fromValues(0, 1, -2);
+
+    const rad = Math.PI * (Date.now() / 2000);
+    const rotation = mat4.rotateY(mat4.translation(origin), rad);
+    vec3.transformMat4(eyePosition, rotation, eyePosition);
+
+    const viewMatrix = mat4.inverse(mat4.lookAt(eyePosition, origin, upVector));
+
+    mat4.multiply(projectionMatrix, viewMatrix, viewProjMatrix);
+    return viewProjMatrix as Float32Array;
+  }
+
   function frame() {
     // Sample is no longer the active page.
     if (!pageState.active) return;
+
+    const cameraViewProj = getCameraViewProjMatrix();
+    device.queue.writeBuffer(
+      sceneUniformBuffer,
+      0,
+      cameraViewProj.buffer,
+      cameraViewProj.byteOffset,
+      cameraViewProj.byteLength
+    );
 
     // Clear the canvas with a render pass
     const encoder = device.createCommandEncoder();
@@ -210,8 +298,10 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     });
 
     // Draw the square.
-    pass.setPipeline(cellPipeline);
+    pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup);
+    pass.setBindGroup(1, sceneBindGroup);
+    pass.setBindGroup(2, modelBindGroup);
     pass.setVertexBuffer(0, vertexBuffer);
     pass.setIndexBuffer(indexBuffer, 'uint16');
     pass.drawIndexed(indexCount);
@@ -224,12 +314,12 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
   requestAnimationFrame(frame);
 };
 
-const hw0: () => JSX.Element = () =>
+const hw1: () => JSX.Element = () =>
   /* prettier-ignore */
   makeSample({
-    name: 'Shadow Mapping',
+    name: 'HW1',
     description:
-      'This example shows how to sample from a depth texture to render shadows.',
+      'renders a rotating 3D teapot model',
     init,
     gui: true,
     sources: [
@@ -245,4 +335,4 @@ const hw0: () => JSX.Element = () =>
     filename: __filename,
   });
 
-export default hw0;
+export default hw1;
