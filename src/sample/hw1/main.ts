@@ -2,6 +2,8 @@ import { makeSample, SampleInit } from '../../components/SampleLayout';
 
 import shaderWGSL from './shader.wgsl';
 
+import mesh from '../../meshes/teapot';
+
 const init: SampleInit = async ({ canvas, pageState, gui }) => {
   // WebGPU device initialization
   if (!navigator.gpu) {
@@ -30,29 +32,94 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     alphaMode: 'premultiplied',
   });
 
-  // Create a buffer with the vertices for a single cell.
-  const vertices =
-    /* prettier-ignore */ new Float32Array([
-    //   X,    Y,    Z
-        0.2,  0.0,  0.2,
-        0.0,  0.2,  0.2,
-       -0.2,  0.0,  0.2,
-  ]);
-  const vertexBuffer = device.createBuffer({
-    label: 'Cell vertices',
-    size: vertices.byteLength,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(vertexBuffer, 0, vertices);
+  // // Create a buffer with the vertices for a single cell.
+  // const vertices =
+  //   /* prettier-ignore */ new Float32Array([
+  //   //   X,    Y,    Z
+  //       0.2,  0.0,  0.2,
+  //       0.0,  0.2,  0.2,
+  //      -0.2,  0.0,  0.2,
+  // ]);
+  // const vertexBuffer = device.createBuffer({
+  //   label: 'Cell vertices',
+  //   size: vertices.byteLength,
+  //   usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  // });
+  // device.queue.writeBuffer(vertexBuffer, 0, vertices);
 
-  const vertexBufferLayout: GPUVertexBufferLayout[] = [
+  // const vertexBufferLayout: GPUVertexBufferLayout[] = [
+  //   {
+  //     arrayStride: 12,
+  //     attributes: [
+  //       {
+  //         format: 'float32x3',
+  //         offset: 0,
+  //         shaderLocation: 0, // Position. Matches @location(0) in the @vertex shader.
+  //       },
+  //     ],
+  //   },
+  // ];
+
+  const { positions } = mesh;
+
+  let maxCoord = 0;
+  for (const position of positions) {
+    for (const coord of position) {
+      maxCoord = Math.max(maxCoord, Math.abs(coord));
+    }
+  }
+
+  const scale = 1.5 / maxCoord;
+
+  for (const position of positions) {
+    position[0] *= scale;
+    position[1] *= scale;
+    position[2] *= scale;
+  }
+
+  const vertexBuffer = device.createBuffer({
+    size: mesh.positions.length * 3 * 2 * Float32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.VERTEX,
+    mappedAtCreation: true,
+  });
+  {
+    const mapping = new Float32Array(vertexBuffer.getMappedRange());
+    for (let i = 0; i < mesh.positions.length; ++i) {
+      mapping.set(mesh.positions[i], 6 * i);
+      mapping.set(mesh.normals[i], 6 * i + 3);
+    }
+    vertexBuffer.unmap();
+  }
+
+  const indexCount = mesh.triangles.length * 3;
+  const indexBuffer = device.createBuffer({
+    size: indexCount * Uint16Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.INDEX,
+    mappedAtCreation: true,
+  });
+  {
+    const mapping = new Uint16Array(indexBuffer.getMappedRange());
+    for (let i = 0; i < mesh.triangles.length; ++i) {
+      mapping.set(mesh.triangles[i], 3 * i);
+    }
+    indexBuffer.unmap();
+  }
+
+  const vertexBuffers: Iterable<GPUVertexBufferLayout> = [
     {
-      arrayStride: 12,
+      arrayStride: Float32Array.BYTES_PER_ELEMENT * 6,
       attributes: [
         {
-          format: 'float32x3',
+          // position
+          shaderLocation: 0,
           offset: 0,
-          shaderLocation: 0, // Position. Matches @location(0) in the @vertex shader.
+          format: 'float32x3',
+        },
+        {
+          // normal
+          shaderLocation: 1,
+          offset: Float32Array.BYTES_PER_ELEMENT * 3,
+          format: 'float32x3',
         },
       ],
     },
@@ -71,7 +138,7 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     vertex: {
       module: cellShaderModule,
       entryPoint: 'vertexMain',
-      buffers: vertexBufferLayout,
+      buffers: vertexBuffers,
     },
     fragment: {
       module: cellShaderModule,
@@ -146,7 +213,8 @@ const init: SampleInit = async ({ canvas, pageState, gui }) => {
     pass.setPipeline(cellPipeline);
     pass.setBindGroup(0, bindGroup);
     pass.setVertexBuffer(0, vertexBuffer);
-    pass.draw(3);
+    pass.setIndexBuffer(indexBuffer, 'uint16');
+    pass.drawIndexed(indexCount);
 
     pass.end();
 
