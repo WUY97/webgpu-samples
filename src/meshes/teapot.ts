@@ -13,6 +13,12 @@ const mesh = {
 };
 
 const scaleFactor = 50;
+let minX: number;
+let minY: number;
+let maxZ: number;
+let maxX: number;
+let maxY: number;
+let minZ: number;
 
 fetch(teapotPath)
   .then((res) => res.text())
@@ -28,6 +34,24 @@ fetch(teapotPath)
             parseFloat(parts[2]) * scaleFactor,
             parseFloat(parts[3]) * scaleFactor,
           ];
+          if (minX === undefined || position[0] < minX) {
+            minX = position[0];
+          }
+          if (maxX === undefined || position[0] > maxX) {
+            maxX = position[0];
+          }
+          if (minY === undefined || position[1] < minY) {
+            minY = position[1];
+          }
+          if (maxY === undefined || position[1] > maxY) {
+            maxY = position[1];
+          }
+          if (maxZ === undefined || position[2] > maxZ) {
+            maxZ = position[2];
+          }
+          if (minZ === undefined || position[2] < minZ) {
+            minZ = position[2];
+          }
           mesh.positions.push(position);
           break;
         case 'vn':
